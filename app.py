@@ -349,8 +349,7 @@ def webhook():
     return 'OK'
 
 if __name__ == '__main__':
-    # Use the port assigned by Render (via environment variable)
-port = int(os.getenv("PORT", 5000))
-updater.start_webhook(listen="0.0.0.0", port=port, url_path=TOKEN)
-updater.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}")
-app.run(host="0.0.0.0", port=port)
+    port = int(os.getenv("PORT", 5000))
+    updater.start_webhook(listen="0.0.0.0", port=port, url_path=TOKEN)
+    updater.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}")
+    app.run(host="0.0.0.0", port=port)
