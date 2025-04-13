@@ -1,11 +1,12 @@
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, InlineQueryHandler, CallbackQueryHandler, MessageHandler, ContextTypes
-from telegram.ext import filters  # Updated import for filters
+from telegram.ext import filters
 import database
 import os
 import re
 import sqlite3
+import asyncio  # Added for async webhook setup
 
 app = Flask(__name__)
 TOKEN = "7679035280:AAEDbzms9ijscpyfuCG0Rr49gzbQKm2baBo"  # @Shopenibelbot
@@ -342,7 +343,7 @@ application.add_handler(CommandHandler("removeproduct", remove_product))
 application.add_handler(CommandHandler("cart", view_cart_command))
 application.add_handler(InlineQueryHandler(inline_query))
 application.add_handler(CallbackQueryHandler(button_handler))
-application.add_handler(MessageHandler(filters.Text() & ~filters.COMMAND | filters.PHOTO, handle_message))  # Updated filters
+application.add_handler(MessageHandler(filters.Text() & ~filters.COMMAND | filters.PHOTO, handle_message))
 
 # Flask route for webhook
 @app.route(f'/{TOKEN}', methods=['POST'])
@@ -351,11 +352,11 @@ def webhook():
     application.process_update(update)
     return 'OK'
 
-# Start the bot
+# Start the bot with async webhook setup
 if __name__ == '__main__':
     # Use the port assigned by Render (via environment variable)
     port = int(os.getenv("PORT", 5000))
-    # Set the webhook
-    application.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}")
+    # Set the webhook asynchronously
+    asyncio.run(application.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}"))
     # Run the Flask app
     app.run(host="0.0.0.0", port=port)
