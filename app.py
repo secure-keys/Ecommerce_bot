@@ -1,6 +1,6 @@
 from flask import Flask, request
-from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, InlineQueryHandler, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
+from telegram import Update
+from telegram.ext import Application, CommandHandler, InlineQueryHandler, CallbackQueryHandler, MessageHandler, Filters, ContextTypes
 import database
 import os
 import re
@@ -9,40 +9,39 @@ import sqlite3
 app = Flask(__name__)
 TOKEN = "7679035280:AAEDbzms9ijscpyfuCG0Rr49gzbQKm2baBo"  # @Shopenibelbot
 MERCHANT_ID = 6613592916  # Your Telegram user ID
-updater = Updater(TOKEN, use_context=True)
-dp = updater.dispatcher
+application = Application.builder().token(TOKEN).build()
 
 # Initialize database
 database.init_db()
 
 # Command to add product (for owner)
-def add_product(update: Update, context: CallbackContext):
+async def add_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id != MERCHANT_ID:
-        update.message.reply_text("Unauthorized!")
+        await update.message.reply_text("Unauthorized!")
         return
     context.user_data['adding_product'] = True
     context.user_data['product_data'] = {}
-    update.message.reply_text("Enter product name:")
+    await update.message.reply_text("Enter product name:")
 
 # Command to remove product (for owner)
-def remove_product(update: Update, context: CallbackContext):
+async def remove_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id != MERCHANT_ID:
-        update.message.reply_text("Unauthorized!")
+        await update.message.reply_text("Unauthorized!")
         return
     if not context.args:
-        update.message.reply_text("Please provide the SKU to remove (e.g., /removeproduct CHV-001)")
+        await update.message.reply_text("Please provide the SKU to remove (e.g., /removeproduct CHV-001)")
         return
     sku = context.args[0]
     name = database.remove_product(sku)
     if name:
-        update.message.reply_text(f"Product '{name}' (SKU: {sku}) removed successfully!")
+        await update.message.reply_text(f"Product '{name}' (SKU: {sku}) removed successfully!")
     else:
-        update.message.reply_text(f"Product with SKU '{sku}' not found!")
+        await update.message.reply_text(f"Product with SKU '{sku}' not found!")
 
 # Handle text/photo messages
-def handle_message(update: Update, context: CallbackContext):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     text = update.message.text.lower() if update.message.text else None
@@ -54,52 +53,52 @@ def handle_message(update: Update, context: CallbackContext):
             photo = update.message.photo[-1].get_file()
             image_path = f"images/{user_data['sku']}.jpg"
             os.makedirs('images', exist_ok=True)
-            photo.download(image_path)
+            photo.download(out=open(image_path, 'wb'))
             database.add_product(
                 user_data['name'], user_data['sku'],
                 user_data['colour_flavour'], user_data['price'], image_path
             )
-            update.message.reply_text("Product added!")
+            await update.message.reply_text("Product added!")
             context.user_data.clear()
         else:
             text = update.message.text
             if 'name' not in user_data:
                 user_data['name'] = text
-                update.message.reply_text("Enter SKU:")
+                await update.message.reply_text("Enter SKU:")
             elif 'sku' not in user_data:
                 user_data['sku'] = text
-                update.message.reply_text("Enter colour/flavour:")
+                await update.message.reply_text("Enter colour/flavour:")
             elif 'colour_flavour' not in user_data:
                 user_data['colour_flavour'] = text
-                update.message.reply_text("Enter price (in ₦):")
+                await update.message.reply_text("Enter price (in ₦):")
             elif 'price' not in user_data:
                 try:
                     user_data['price'] = float(text)
-                    update.message.reply_text("Upload product image:")
+                    await update.message.reply_text("Upload product image:")
                 except ValueError:
-                    update.message.reply_text("Invalid price! Enter a number:")
+                    await update.message.reply_text("Invalid price! Enter a number:")
 
     # Awaiting quantity input after "Add to Cart"
     elif context.user_data.get('awaiting_quantity'):
         if not text:
-            update.message.reply_text("Please enter a number (e.g., 2).")
+            await update.message.reply_text("Please enter a number (e.g., 2).")
             return
         try:
             quantity = int(text)
             if quantity <= 0:
-                update.message.reply_text("Please enter a valid number greater than 0 (e.g., 2).")
+                await update.message.reply_text("Please enter a valid number greater than 0 (e.g., 2).")
                 return
             sku = context.user_data['awaiting_quantity']['sku']
             name = context.user_data['awaiting_quantity']['name']
             print(f"Adding {quantity} units of SKU {sku} for user {user_id}")
             database.toggle_cart(user_id, sku, add=True, quantity=quantity)
-            update.message.reply_text(f"Added {quantity} units of {name} to your cart!")
+            await update.message.reply_text(f"Added {quantity} units of {name} to your cart!")
             # Add buttons for next steps
             keyboard = [
                 [InlineKeyboardButton("View Cart", callback_data="view_cart")],
                 [InlineKeyboardButton("Continue Shopping", callback_data="continue")]
             ]
-            context.bot.send_message(
+            await context.bot.send_message(
                 chat_id,
                 "What would you like to do next?",
                 reply_markup=InlineKeyboardMarkup(keyboard)
@@ -107,10 +106,10 @@ def handle_message(update: Update, context: CallbackContext):
             # Refresh the inline search dropdown if this was triggered from an inline query
             if update.inline_query:
                 print(f"Refreshing inline query after quantity confirmation for user {user_id}")
-                inline_query(update, context)
+                await inline_query(update, context)
             context.user_data.clear()
         except ValueError:
-            update.message.reply_text("Please enter a valid number greater than 0 (e.g., 2).")
+            await update.message.reply_text("Please enter a valid number greater than 0 (e.g., 2).")
 
     # Proof of payment
     elif context.user_data.get('awaiting_proof'):
@@ -118,26 +117,26 @@ def handle_message(update: Update, context: CallbackContext):
             photo = update.message.photo[-1].get_file()
             proof_path = f"proof/{user_id}_{context.user_data['order_id']}.jpg"
             os.makedirs('proof', exist_ok=True)
-            photo.download(proof_path)
+            photo.download(out=open(proof_path, 'wb'))
             order_id = context.user_data['order_id']
             items = context.user_data['order_items']
             total = context.user_data['order_total']
             username = update.message.from_user.username or "No username"
-            updater.bot.send_message(
+            await context.bot.send_message(
                 MERCHANT_ID,
                 f"New Order #{order_id}\nUser: {username} (ID: {user_id})\nItems:\n" +
                 "\n".join([f"- {name} ({sku}) x{qty}: ₦{price*qty:.2f}" for name, sku, _, price, qty, _ in items]) +
                 f"\nTotal: ₦{total:.2f}\nProof of payment received.",
                 parse_mode='HTML'
             )
-            updater.bot.send_photo(MERCHANT_ID, open(proof_path, 'rb'))
-            update.message.reply_text(
+            await context.bot.send_photo(MERCHANT_ID, open(proof_path, 'rb'))
+            await update.message.reply_text(
                 "Proof received! Your order has been recorded successfully and is being processed. "
                 "Please message @ShopWithEnibel with your delivery details."
             )
             context.user_data.clear()
         else:
-            update.message.reply_text("Please upload an image as proof of payment.")
+            await update.message.reply_text("Please upload an image as proof of payment.")
 
     # Cart removal
     elif context.user_data.get('viewing_cart') and text and text.startswith("remove "):
@@ -145,15 +144,16 @@ def handle_message(update: Update, context: CallbackContext):
         if match:
             index = int(match.group(1))
             if database.remove_cart_item_by_index(user_id, index):
-                update.message.reply_text(f"Item {index} removed!")
-                view_cart(user_id, chat_id, context)
+                await update.message.reply_text(f"Item {index} removed!")
+                await view_cart(user_id, chat_id, context)
             else:
-                update.message.reply_text("Invalid serial number!")
+                await update.message.reply_text("Invalid serial number!")
         else:
-            update.message.reply_text("Use format: remove <b>serial number</b> (e.g., remove 1)")
+            await update.message.reply_text("Use format: remove <b>serial number</b> (e.g., remove 1)")
 
 # Inline search with cart toggling
-def inline_query(update: Update, context: CallbackContext):
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from telegram import InlineQueryResultArticle, InputTextMessageContent, InlineKeyboardButton, InlineKeyboardMarkup
     query = update.inline_query.query
     user_id = update.inline_query.from_user.id
     print(f"Inline query received: '{query}' from user {user_id}")
@@ -182,17 +182,18 @@ def inline_query(update: Update, context: CallbackContext):
         )
     print(f"Sending {len(answers)} answers to Telegram")
     try:
-        update.inline_query.answer(answers)
+        await update.inline_query.answer(answers)
         print("Successfully sent answers")
     except Exception as e:
         print(f"Failed to send answers: {e}")
 
 # View cart command
-def view_cart_command(update: Update, context: CallbackContext):
-    view_cart(update.message.from_user.id, update.message.chat_id, context)
+async def view_cart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await view_cart(update.message.from_user.id, update.message.chat_id, context)
 
 # Handle button clicks
-def button_handler(update: Update, context: CallbackContext):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     query = update.callback_query
     user_id = query.from_user.id
     chat_id = query.message.chat_id if query.message else query.from_user.id
@@ -214,24 +215,24 @@ def button_handler(update: Update, context: CallbackContext):
                 database.toggle_cart(user_id, sku, add=True, quantity=1)
                 # Prompt for quantity
                 context.user_data['awaiting_quantity'] = {'sku': sku, 'name': name}
-                context.bot.send_message(
+                await context.bot.send_message(
                     chat_id,
                     f"How many units of {name} do you want to purchase? Reply with a number (e.g., 2)."
                 )
-                query.answer("Please specify the quantity.")
+                await query.answer("Please specify the quantity.")
             else:
-                query.answer("Product not found!")
+                await query.answer("Product not found!")
         else:
             print(f"Removing item with SKU {sku} for user {user_id}")
             database.toggle_cart(user_id, sku, add=False)
-            query.answer("Item removed from cart!")
+            await query.answer("Item removed from cart!")
         # Refresh the inline search dropdown if this is an inline query
         if update.inline_query:
             print(f"Refreshing inline query for user {user_id}")
-            inline_query(update, context)
+            await inline_query(update, context)
     elif data == "view_cart":
         print(f"View Cart button clicked by user {user_id} in chat {chat_id}")
-        view_cart(user_id, chat_id, context, query)
+        await view_cart(user_id, chat_id, context, query)
     elif data == "pay":
         keyboard = [
             [InlineKeyboardButton("Interswitch (Card)", callback_data="pay_interswitch")],
@@ -239,13 +240,13 @@ def button_handler(update: Update, context: CallbackContext):
             [InlineKeyboardButton("Continue Shopping", callback_data="continue")]
         ]
         if query.message:
-            query.message.edit_text("Choose payment method:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.message.edit_text("Choose payment method:", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            context.bot.send_message(chat_id, "Choose payment method:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await context.bot.send_message(chat_id, "Choose payment method:", reply_markup=InlineKeyboardMarkup(keyboard))
     elif data == "pay_interswitch":
         items = database.get_cart(user_id)
         if not items:
-            query.answer("Cart is empty!")
+            await query.answer("Cart is empty!")
             return
         total = sum(price * qty for _, _, _, price, qty, _ in items)
         payment_url = "https://interswitch.payment.url"  # Placeholder
@@ -254,13 +255,13 @@ def button_handler(update: Update, context: CallbackContext):
             [InlineKeyboardButton("Continue Shopping", callback_data="continue")]
         ]
         if query.message:
-            query.message.edit_text(
+            await query.message.edit_text(
                 f"Total: <b>₦{total:.2f}</b>\nProceed to Interswitch payment:",
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
-            context.bot.send_message(
+            await context.bot.send_message(
                 chat_id,
                 f"Total: <b>₦{total:.2f}</b>\nProceed to Interswitch payment:",
                 parse_mode='HTML',
@@ -268,7 +269,7 @@ def button_handler(update: Update, context: CallbackContext):
             )
         username = query.from_user.username or "No username"
         order_id = database.create_order(user_id, username, total, [(sku, qty, price) for _, sku, _, price, qty, _ in items])
-        updater.bot.send_message(
+        await context.bot.send_message(
             MERCHANT_ID,
             f"New Order #{order_id}\nUser: {username} (ID: {user_id})\nItems:\n" +
             "\n".join([f"- {name} ({sku}) x{qty}: ₦{price*qty:.2f}" for name, sku, _, price, qty, _ in items]) +
@@ -278,12 +279,12 @@ def button_handler(update: Update, context: CallbackContext):
     elif data == "pay_bank":
         items = database.get_cart(user_id)
         if not items:
-            query.answer("Cart is empty!")
+            await query.answer("Cart is empty!")
             return
         total = sum(price * qty for _, _, _, price, qty, _ in items)
         keyboard = [[InlineKeyboardButton("Continue Shopping", callback_data="continue")]]
         if query.message:
-            query.message.edit_text(
+            await query.message.edit_text(
                 f"Total: <b>₦{total:.2f}</b>\nPlease transfer to:\n"
                 "Account Number: 9025259913\nName: Blessing Eniye\nBank: Moniepoint\n\n"
                 "Reply with proof of payment (image):",
@@ -291,7 +292,7 @@ def button_handler(update: Update, context: CallbackContext):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
-            context.bot.send_message(
+            await context.bot.send_message(
                 chat_id,
                 f"Total: <b>₦{total:.2f}</b>\nPlease transfer to:\n"
                 "Account Number: 6433846001\nName: Babel Consult\nBank: Moniepoint\n\n"
@@ -308,11 +309,12 @@ def button_handler(update: Update, context: CallbackContext):
         )
     elif data == "continue":
         if query.message:
-            query.message.delete()
-        context.bot.send_message(chat_id, "Search for more products with @shopenibelbot or use /cart to view cart.")
+            await query.message.delete()
+        await context.bot.send_message(chat_id, "Search for more products with @Shopenibelbot or use /cart to view cart.")
 
 # View cart logic
-def view_cart(user_id, chat_id, context, query=None):
+async def view_cart(user_id, chat_id, context, query=None):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     items = database.get_cart(user_id)
     context.user_data['viewing_cart'] = True
     if not items:
@@ -329,27 +331,30 @@ def view_cart(user_id, chat_id, context, query=None):
         ]
     print(f"Sending cart message for user {user_id}: {text}")
     if query and query.message:
-        query.message.edit_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.message.edit_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        context.bot.send_message(chat_id, text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        await context.bot.send_message(chat_id, text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Set up handlers
-dp.add_handler(CommandHandler("addproduct", add_product))
-dp.add_handler(CommandHandler("removeproduct", remove_product))
-dp.add_handler(CommandHandler("cart", view_cart_command))
-dp.add_handler(InlineQueryHandler(inline_query))
-dp.add_handler(CallbackQueryHandler(button_handler))
-dp.add_handler(MessageHandler(Filters.text & ~Filters.command | Filters.photo, handle_message))
+application.add_handler(CommandHandler("addproduct", add_product))
+application.add_handler(CommandHandler("removeproduct", remove_product))
+application.add_handler(CommandHandler("cart", view_cart_command))
+application.add_handler(InlineQueryHandler(inline_query))
+application.add_handler(CallbackQueryHandler(button_handler))
+application.add_handler(MessageHandler(Filters.text & ~Filters.command | Filters.photo, handle_message))
 
 # Flask route for webhook
-@app.route('/webhook', methods=['POST'])
+@app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), updater.bot)
-    dp.process_update(update)
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.process_update(update)
     return 'OK'
 
+# Start the bot
 if __name__ == '__main__':
+    # Use the port assigned by Render (via environment variable)
     port = int(os.getenv("PORT", 5000))
-    updater.start_webhook(listen="0.0.0.0", port=port, url_path=TOKEN)
-    updater.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}")
+    # Set the webhook
+    application.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}")
+    # Run the Flask app
     app.run(host="0.0.0.0", port=port)
