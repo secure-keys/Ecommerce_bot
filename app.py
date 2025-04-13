@@ -6,7 +6,7 @@ import database
 import os
 import re
 import sqlite3
-import asyncio  # Added for async webhook setup
+import asyncio
 
 app = Flask(__name__)
 TOKEN = "7679035280:AAEDbzms9ijscpyfuCG0Rr49gzbQKm2baBo"  # @Shopenibelbot
@@ -352,6 +352,11 @@ def webhook():
     application.process_update(update)
     return 'OK'
 
+# Add a root route for health checks
+@app.route('/')
+def health_check():
+    return 'Bot is running', 200
+
 # Start the bot with async webhook setup
 if __name__ == '__main__':
     # Use the port assigned by Render (via environment variable)
@@ -360,3 +365,10 @@ if __name__ == '__main__':
     asyncio.run(application.bot.set_webhook(f"https://ecommerce-bot-wrqx.onrender.com/{TOKEN}"))
     # Run the Flask app
     app.run(host="0.0.0.0", port=port)
+
+    # Optional: To use Gunicorn instead of Flask's development server, follow these steps:
+    # 1. Update requirements.txt to include 'gunicorn==20.1.0'
+    # 2. Change the Render start command to: gunicorn -w 4 -b 0.0.0.0:$PORT app:app
+    # Note: Uncomment this if you decide to switch to Gunicorn later.
+    # import gunicorn
+    # This line is just a placeholder to show where Gunicorn would be used.
