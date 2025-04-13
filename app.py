@@ -1,6 +1,7 @@
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, CommandHandler, InlineQueryHandler, CallbackQueryHandler, MessageHandler, Filters, ContextTypes
+from telegram.ext import Application, CommandHandler, InlineQueryHandler, CallbackQueryHandler, MessageHandler, ContextTypes
+from telegram.ext import filters  # Updated import for filters
 import database
 import os
 import re
@@ -341,7 +342,7 @@ application.add_handler(CommandHandler("removeproduct", remove_product))
 application.add_handler(CommandHandler("cart", view_cart_command))
 application.add_handler(InlineQueryHandler(inline_query))
 application.add_handler(CallbackQueryHandler(button_handler))
-application.add_handler(MessageHandler(Filters.text & ~Filters.command | Filters.photo, handle_message))
+application.add_handler(MessageHandler(filters.Text() & ~filters.COMMAND | filters.PHOTO, handle_message))  # Updated filters
 
 # Flask route for webhook
 @app.route(f'/{TOKEN}', methods=['POST'])
